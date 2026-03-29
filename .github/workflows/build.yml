@@ -9,8 +9,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Build
+
+      - name: Build Eve
         run: |
           xcodebuild -project Eve.xcodeproj \
             -scheme Eve \
@@ -19,15 +19,66 @@ jobs:
             -archivePath build/Eve.xcarchive \
             archive \
             CODE_SIGNING_ALLOWED=NO
-          
-      - name: Create IPA
+
+      - name: Build QueenTest binary
         run: |
+          # Minimal ARM64 binary that calls exit(42)
+          cat > queen_test.s << 'ASM'
+          .global _main
+          _main:
+            mov x0, #42
+            mov x16, #1
+            svc #0
+          ASM
+          # Assemble and link
+          xcrun -sdk iphoneos clang -arch arm64 -o QueenTest queen_test.s \
+            -e _main -nostdlib -Wl,-pie
+          # Ad-hoc sign
+          codesign -s - --identifier com.queenos.test QueenTest
+          # Verify
+          codesign -dvv QueenTest 2>&1 || true
+          file QueenTest
+
+      - name: Create IPAs
+        run: |
+          # Eve IPA
           mkdir -p build/Payload
           cp -r build/Eve.xcarchive/Products/Applications/Eve.app build/Payload/
           cd build && zip -r Eve.ipa Payload/
-          
-      - name: Upload IPA
+          cd ..
+
+          # QueenTest IPA
+          mkdir -p build2/Payload/QueenTest.app
+          cp QueenTest build2/Payload/QueenTest.app/
+          cat > build2/Payload/QueenTest.app/Info.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key><string>QueenTest</string>
+            <key>CFBundleIdentifier</key><string>com.queenos.test</string>
+            <key>CFBundleName</key><string>QueenTest</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>CFBundleShortVersionString</key><string>1.0</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
+            <key>MinimumOSVersion</key><string>16.0</string>
+            <key>UIDeviceFamily</key><array><integer>1</integer></array>
+            <key>LSRequiresIPhoneOS</key><true/>
+            <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
+            <key>DTPlatformName</key><string>iphoneos</string>
+          </dict>
+          </plist>
+          PLIST
+          printf 'APPL????' > build2/Payload/QueenTest.app/PkgInfo
+          # Sign the whole app bundle
+          codesign -s - --force --deep build2/Payload/QueenTest.app
+          cd build2 && zip -r QueenTest.ipa Payload/
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Eve-IPA
-          path: build/Eve.ipa
+          name: All-IPAs
+          path: |
+            build/Eve.ipa
+            build2/QueenTest.ipa
