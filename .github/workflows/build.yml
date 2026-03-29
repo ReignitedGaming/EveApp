@@ -30,9 +30,12 @@ jobs:
             mov x16, #1
             svc #0
           ASM
-          # Assemble and link
-          xcrun -sdk iphoneos clang -arch arm64 -o QueenTest queen_test.s \
-            -e _main -nostdlib -Wl,-pie
+          # Assemble and link (must link libSystem on iOS)
+          cat > queen_test.c << 'CSRC'
+          #include <stdlib.h>
+          int main() { exit(42); }
+          CSRC
+          xcrun -sdk iphoneos clang -arch arm64 -o QueenTest queen_test.c -Os
           # Ad-hoc sign
           codesign -s - --identifier com.queenos.test QueenTest
           # Verify
