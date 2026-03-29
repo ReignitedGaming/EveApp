@@ -93,38 +93,49 @@ func testAMFIConstraints() -> String {
     results += "getuid: \(getuid())\n"
     results += "geteuid: \(geteuid())\n"
 
-    // Test 7: Enumerate reachable XPC/Mach services
-    results += "\n[XPC Services]\n"
-    let servicesToTest = [
-        "com.apple.springboard.services",
-        "com.apple.backboardd",
-        "com.apple.lsd.mapdb",
-        "com.apple.installd",
-        "com.apple.mobile.installd",
-        "com.apple.runningboardd",
-        "com.apple.frontboard.systemappservices",
-        "com.apple.mediaserverd",
-        "com.apple.photoanalysisd",
-        "com.apple.bookassetd",
-        "com.apple.itunesstored",
-        "com.apple.cfprefsd.daemon",
-        "com.apple.containermanagerd",
-        "com.apple.mobileassetd",
-        "com.apple.SecurityServer",
-        "com.apple.trustd",
-        "com.apple.debugserver",
-        "com.apple.dt.remotepairingd",
-    ]
-    for svc in servicesToTest {
-        let port = svc.withCString { name -> mach_port_t in
+    // Test 7: Enumerate reachable Mach services via dlsym
+    results += "\n[Mach Services]\n"
+
+    typealias BootstrapLookUpFn = @convention(c) (mach_port_t, UnsafePointer<CChar>, UnsafeMutablePointer<mach_port_t>) -> kern_return_t
+
+    let bsHandle = dlopen("/usr/lib/system/libxpc.dylib", RTLD_NOW)
+    let bsLookupSym = bsHandle != nil ? dlsym(bsHandle, "bootstrap_look_up") : nil
+
+    if let sym = bsLookupSym {
+        let bsLookup = unsafeBitCast(sym, to: BootstrapLookUpFn.self)
+
+        let servicesToTest = [
+            "com.apple.springboard.services",
+            "com.apple.backboardd",
+            "com.apple.lsd.mapdb",
+            "com.apple.installd",
+            "com.apple.mobile.installd",
+            "com.apple.runningboardd",
+            "com.apple.frontboard.systemappservices",
+            "com.apple.mediaserverd",
+            "com.apple.photoanalysisd",
+            "com.apple.bookassetd",
+            "com.apple.itunesstored",
+            "com.apple.cfprefsd.daemon",
+            "com.apple.containermanagerd",
+            "com.apple.mobileassetd",
+            "com.apple.trustd",
+            "com.apple.debugserver",
+            "com.apple.amfid",
+        ]
+        for svc in servicesToTest {
             var port: mach_port_t = 0
-            let kr = bootstrap_look_up(bootstrap_port, name, &port)
-            return kr == KERN_SUCCESS ? port : 0
+            let kr = svc.withCString { name in
+                bsLookup(bootstrap_port, name, &port)
+            }
+            if kr == KERN_SUCCESS && port != 0 {
+                results += "  \(svc): PORT \(port)\n"
+            }
         }
-        if port != 0 {
-            results += "  \(svc): REACHABLE (port \(port))\n"
-        }
+    } else {
+        results += "  bootstrap_look_up not found\n"
     }
+    if bsHandle != nil { dlclose(bsHandle) }
 
     // Test 8: Try to get our own task port (get-task-allow test)
     let selfTask = mach_task_self_
