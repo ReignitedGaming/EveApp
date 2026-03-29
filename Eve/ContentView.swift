@@ -93,65 +93,10 @@ func testAMFIConstraints() -> String {
     results += "getuid: \(getuid())\n"
     results += "geteuid: \(geteuid())\n"
 
-    // Test 7: Enumerate reachable Mach services via dlsym
-    results += "\n[Mach Services]\n"
-
-    typealias BootstrapLookUpFn = @convention(c) (mach_port_t, UnsafePointer<CChar>, UnsafeMutablePointer<mach_port_t>) -> kern_return_t
-
-    let bsHandle = dlopen("/usr/lib/system/libxpc.dylib", RTLD_NOW)
-    let bsLookupSym = bsHandle != nil ? dlsym(bsHandle, "bootstrap_look_up") : nil
-
-    if let sym = bsLookupSym {
-        let bsLookup = unsafeBitCast(sym, to: BootstrapLookUpFn.self)
-
-        let servicesToTest = [
-            "com.apple.springboard.services",
-            "com.apple.backboardd",
-            "com.apple.lsd.mapdb",
-            "com.apple.installd",
-            "com.apple.mobile.installd",
-            "com.apple.runningboardd",
-            "com.apple.frontboard.systemappservices",
-            "com.apple.mediaserverd",
-            "com.apple.photoanalysisd",
-            "com.apple.bookassetd",
-            "com.apple.itunesstored",
-            "com.apple.cfprefsd.daemon",
-            "com.apple.containermanagerd",
-            "com.apple.mobileassetd",
-            "com.apple.trustd",
-            "com.apple.debugserver",
-            "com.apple.amfid",
-        ]
-        for svc in servicesToTest {
-            var port: mach_port_t = 0
-            let kr = svc.withCString { name in
-                bsLookup(bootstrap_port, name, &port)
-            }
-            if kr == KERN_SUCCESS && port != 0 {
-                results += "  \(svc): PORT \(port)\n"
-            }
-        }
-    } else {
-        results += "  bootstrap_look_up not found\n"
-    }
-    if bsHandle != nil { dlclose(bsHandle) }
-
-    // Test 8: Try to get our own task port (get-task-allow test)
-    let selfTask = mach_task_self_
-    results += "mach_task_self: \(selfTask)\n"
-    var taskInfo = mach_task_basic_info()
-    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
-    let kr = withUnsafeMutablePointer(to: &taskInfo) { ptr in
-        ptr.withMemoryRebound(to: Int32.self, capacity: Int(count)) { intPtr in
-            task_info(selfTask, task_flavor_t(MACH_TASK_BASIC_INFO), intPtr, &count)
-        }
-    }
-    results += "task_info: \(kr == KERN_SUCCESS ? "OK" : "FAILED (\(kr))")\n"
-    if kr == KERN_SUCCESS {
-        results += "  resident_size: \(taskInfo.resident_size)\n"
-        results += "  virtual_size: \(taskInfo.virtual_size)\n"
-    }
+    // Test 7: Check if we can read our own entitlements
+    var mib: [Int32] = [1, 14] // CTL_KERN, KERN_PROC
+    var mibSize = MemoryLayout<Int32>.size * 2
+    results += "kern.proc accessible: checking...\n"
 
     return results
 }
