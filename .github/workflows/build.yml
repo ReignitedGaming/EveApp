@@ -44,9 +44,10 @@ jobs:
 
       - name: Create IPAs
         run: |
-          # Eve IPA
+          # Eve IPA — ad-hoc sign for AltStore compatibility
           mkdir -p build/Payload
           cp -r build/Eve.xcarchive/Products/Applications/Eve.app build/Payload/
+          codesign -s - --force --deep --identifier com.eve.companion build/Payload/Eve.app
           cd build && zip -r Eve.ipa Payload/
           cd ..
 
