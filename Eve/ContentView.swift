@@ -67,24 +67,37 @@ func testAMFIConstraints() -> String {
             results += "PID: \(pid) — PROCESS SPAWNED!\n"
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            results += "Exit status: \(WEXITSTATUS(status))\n"
+            results += "Exit status: \((status >> 8) & 0xff)\n"
         }
         posix_spawnattr_destroy(&attr)
     }
 
-    // Test 5: Try fork (likely blocked)
+    // Test 5: Try syscall for fork directly (bypassing Swift's block)
     results += "fork test: "
-    let forkPid = fork()
-    if forkPid == 0 {
-        // Child — exit immediately
-        _exit(0)
-    } else if forkPid > 0 {
-        results += "SUCCEEDED (child pid \(forkPid))\n"
+    let forkResult = syscall(2) // SYS_fork = 2 on ARM64
+    if forkResult == 0 {
+        _exit(0) // child
+    } else if forkResult > 0 {
+        results += "SUCCEEDED (child pid \(forkResult))\n"
         var status: Int32 = 0
-        waitpid(forkPid, &status, 0)
+        waitpid(Int32(forkResult), &status, 0)
     } else {
-        results += "FAILED (errno \(errno))\n"
+        results += "BLOCKED (errno \(errno))\n"
     }
+
+    // Test 6: Try execve via syscall
+    results += "execve test: "
+    let path = "/usr/bin/true"
+    let execResult = path.withCString { pathPtr -> Int32 in
+        let argv: [UnsafeMutablePointer<CChar>?] = [nil]
+        let envp: [UnsafeMutablePointer<CChar>?] = [nil]
+        return argv.withUnsafeBufferPointer { argvBuf in
+            envp.withUnsafeBufferPointer { envpBuf in
+                return execve(pathPtr, argvBuf.baseAddress, envpBuf.baseAddress)
+            }
+        }
+    }
+    results += "returned \(execResult) errno \(errno)\n"
 
     return results
 }
