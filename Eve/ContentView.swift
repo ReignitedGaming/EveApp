@@ -93,10 +93,23 @@ func testAMFIConstraints() -> String {
     results += "getuid: \(getuid())\n"
     results += "geteuid: \(geteuid())\n"
 
-    // Test 7: Check if we can read our own entitlements
-    var mib: [Int32] = [1, 14] // CTL_KERN, KERN_PROC
-    var mibSize = MemoryLayout<Int32>.size * 2
-    results += "kern.proc accessible: checking...\n"
+    // Test 7: Check Mach service reachability via NSConnection
+    results += "\n[Services]\n"
+    let services = ["com.apple.springboard.services", "com.apple.installd",
+                    "com.apple.trustd", "com.apple.amfid",
+                    "com.apple.containermanagerd", "com.apple.runningboardd"]
+    for svc in services {
+        let exists = dlsym(dlopen(nil, RTLD_NOW), svc) != nil
+        results += "  \(svc): \(exists ? "sym" : "no")\n"
+    }
+
+    // Test 8: Can we write outside our container?
+    let testPaths = ["/tmp/eve_test", "/var/mobile/eve_test", "/var/tmp/eve_test"]
+    for path in testPaths {
+        let ok = "test".write(toFile: path, atomically: true, encoding: .utf8)
+        results += "write \(path): \(ok ? "YES" : "NO")\n"
+        if ok { try? FileManager.default.removeItem(atPath: path) }
+    }
 
     return results
 }
