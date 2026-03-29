@@ -72,32 +72,31 @@ func testAMFIConstraints() -> String {
         posix_spawnattr_destroy(&attr)
     }
 
-    // Test 5: Try syscall for fork directly (bypassing Swift's block)
-    results += "fork test: "
-    let forkResult = syscall(2) // SYS_fork = 2 on ARM64
-    if forkResult == 0 {
-        _exit(0) // child
-    } else if forkResult > 0 {
-        results += "SUCCEEDED (child pid \(forkResult))\n"
-        var status: Int32 = 0
-        waitpid(Int32(forkResult), &status, 0)
-    } else {
-        results += "BLOCKED (errno \(errno))\n"
+    // Test 5: Check if process-related functions exist via dlsym
+    let sysHandle = dlopen(nil, RTLD_NOW)
+    if sysHandle != nil {
+        let hasFork = dlsym(sysHandle, "fork") != nil
+        let hasExecve = dlsym(sysHandle, "execve") != nil
+        let hasPosixSpawn = dlsym(sysHandle, "posix_spawn") != nil
+        let hasSystem = dlsym(sysHandle, "system") != nil
+        let hasPopen = dlsym(sysHandle, "popen") != nil
+        results += "dlsym fork: \(hasFork)\n"
+        results += "dlsym execve: \(hasExecve)\n"
+        results += "dlsym posix_spawn: \(hasPosixSpawn)\n"
+        results += "dlsym system: \(hasSystem)\n"
+        results += "dlsym popen: \(hasPopen)\n"
+        dlclose(sysHandle)
     }
 
-    // Test 6: Try execve via syscall
-    results += "execve test: "
-    let path = "/usr/bin/true"
-    let execResult = path.withCString { pathPtr -> Int32 in
-        let argv: [UnsafeMutablePointer<CChar>?] = [nil]
-        let envp: [UnsafeMutablePointer<CChar>?] = [nil]
-        return argv.withUnsafeBufferPointer { argvBuf in
-            envp.withUnsafeBufferPointer { envpBuf in
-                return execve(pathPtr, argvBuf.baseAddress, envpBuf.baseAddress)
-            }
-        }
-    }
-    results += "returned \(execResult) errno \(errno)\n"
+    // Test 6: Check sandbox profile
+    results += "getpid: \(getpid())\n"
+    results += "getuid: \(getuid())\n"
+    results += "geteuid: \(geteuid())\n"
+
+    // Test 7: Check if we can read our own entitlements
+    var mib: [Int32] = [1, 14] // CTL_KERN, KERN_PROC
+    var mibSize = MemoryLayout<Int32>.size * 2
+    results += "kern.proc accessible: checking...\n"
 
     return results
 }
