@@ -93,10 +93,54 @@ func testAMFIConstraints() -> String {
     results += "getuid: \(getuid())\n"
     results += "geteuid: \(geteuid())\n"
 
-    // Test 7: Check if we can read our own entitlements
-    var mib: [Int32] = [1, 14] // CTL_KERN, KERN_PROC
-    var mibSize = MemoryLayout<Int32>.size * 2
-    results += "kern.proc accessible: checking...\n"
+    // Test 7: Enumerate reachable XPC/Mach services
+    results += "\n[XPC Services]\n"
+    let servicesToTest = [
+        "com.apple.springboard.services",
+        "com.apple.backboardd",
+        "com.apple.lsd.mapdb",
+        "com.apple.installd",
+        "com.apple.mobile.installd",
+        "com.apple.runningboardd",
+        "com.apple.frontboard.systemappservices",
+        "com.apple.mediaserverd",
+        "com.apple.photoanalysisd",
+        "com.apple.bookassetd",
+        "com.apple.itunesstored",
+        "com.apple.cfprefsd.daemon",
+        "com.apple.containermanagerd",
+        "com.apple.mobileassetd",
+        "com.apple.SecurityServer",
+        "com.apple.trustd",
+        "com.apple.debugserver",
+        "com.apple.dt.remotepairingd",
+    ]
+    for svc in servicesToTest {
+        let port = svc.withCString { name -> mach_port_t in
+            var port: mach_port_t = 0
+            let kr = bootstrap_look_up(bootstrap_port, name, &port)
+            return kr == KERN_SUCCESS ? port : 0
+        }
+        if port != 0 {
+            results += "  \(svc): REACHABLE (port \(port))\n"
+        }
+    }
+
+    // Test 8: Try to get our own task port (get-task-allow test)
+    let selfTask = mach_task_self_
+    results += "mach_task_self: \(selfTask)\n"
+    var taskInfo = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+    let kr = withUnsafeMutablePointer(to: &taskInfo) { ptr in
+        ptr.withMemoryRebound(to: Int32.self, capacity: Int(count)) { intPtr in
+            task_info(selfTask, task_flavor_t(MACH_TASK_BASIC_INFO), intPtr, &count)
+        }
+    }
+    results += "task_info: \(kr == KERN_SUCCESS ? "OK" : "FAILED (\(kr))")\n"
+    if kr == KERN_SUCCESS {
+        results += "  resident_size: \(taskInfo.resident_size)\n"
+        results += "  virtual_size: \(taskInfo.virtual_size)\n"
+    }
 
     return results
 }
