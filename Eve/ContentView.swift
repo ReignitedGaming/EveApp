@@ -106,9 +106,13 @@ func testAMFIConstraints() -> String {
     // Test 8: Can we write outside our container?
     let testPaths = ["/tmp/eve_test", "/var/mobile/eve_test", "/var/tmp/eve_test"]
     for path in testPaths {
-        let ok = "test".write(toFile: path, atomically: true, encoding: .utf8)
-        results += "write \(path): \(ok ? "YES" : "NO")\n"
-        if ok { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            try "test".write(toFile: path, atomically: true, encoding: .utf8)
+            results += "write \(path): YES\n"
+            try? FileManager.default.removeItem(atPath: path)
+        } catch {
+            results += "write \(path): NO\n"
+        }
     }
 
     return results
