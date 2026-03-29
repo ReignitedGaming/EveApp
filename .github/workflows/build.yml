@@ -1,0 +1,33 @@
+name: Build Eve iOS App
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build
+        run: |
+          xcodebuild -project Eve.xcodeproj \
+            -scheme Eve \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath build/Eve.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO
+          
+      - name: Create IPA
+        run: |
+          mkdir -p build/Payload
+          cp -r build/Eve.xcarchive/Products/Applications/Eve.app build/Payload/
+          cd build && zip -r Eve.ipa Payload/
+          
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eve-IPA
+          path: build/Eve.ipa
