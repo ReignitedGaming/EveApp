@@ -58,17 +58,50 @@ func testAMFIConstraints() -> String {
     let r4 = sysctlbyname("security.mac.amfi.developer_mode_status", &devMode, &size, nil, 0)
     results += "developer_mode: \(r4 == 0 ? "\(devMode)" : "DENIED (\(errno))")\n"
 
-    // Test 4: Try posix_spawn (will likely fail but the ERROR tells us what's checked)
+    // Test 4: Try posix_spawn with category 127 via dlsym
     if attr != nil {
+        // Get posix_spawnattr_setmacpolicyinfo_np via dlsym
+        let libHandle = dlopen("/usr/lib/libSystem.B.dylib", RTLD_NOW)
+
+        if let macPolicySym = dlsym(libHandle, "posix_spawnattr_setmacpolicyinfo_np") {
+            // Function signature: int posix_spawnattr_setmacpolicyinfo_np(posix_spawnattr_t*, const char*, void*, size_t)
+            typealias SetMacPolicyFn = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, UnsafePointer<CChar>, UnsafeRawPointer, Int) -> Int32
+            let setMacPolicy = unsafeBitCast(macPolicySym, to: SetMacPolicyFn.self)
+
+            // Build minimal LWCR (Lightweight Constraint) with category 127
+            // LWCR format: magic(4) + length(4) + version(4) + constraintCategory(4)
+            var lwcr: [UInt8] = []
+            // LWCR magic: 0xfade7171
+            lwcr += [0xfa, 0xde, 0x71, 0x71]
+            // Length: 16 bytes total
+            lwcr += [0x00, 0x00, 0x00, 0x10]
+            // Version: 1
+            lwcr += [0x00, 0x00, 0x00, 0x01]
+            // Constraint category: 127
+            lwcr += [0x00, 0x00, 0x00, 0x7f]
+
+            let policyResult = lwcr.withUnsafeBufferPointer { buf in
+                "AMFI".withCString { name in
+                    setMacPolicy(&attr, name, buf.baseAddress!, buf.count)
+                }
+            }
+            results += "setmacpolicyinfo(AMFI, cat127): \(policyResult) (\(policyResult == 0 ? "OK" : String(cString: strerror(policyResult))))\n"
+        } else {
+            results += "setmacpolicyinfo: symbol not found\n"
+        }
+
+        // Now try posix_spawn with the category 127 constraints set
         var pid: pid_t = 0
         let spawnResult = posix_spawn(&pid, "/usr/bin/true", nil, &attr, nil, nil)
-        results += "posix_spawn /usr/bin/true: \(spawnResult) (\(String(cString: strerror(spawnResult))))\n"
+        results += "posix_spawn /usr/bin/true (cat127): \(spawnResult) (\(String(cString: strerror(spawnResult))))\n"
         if spawnResult == 0 {
-            results += "PID: \(pid) — PROCESS SPAWNED!\n"
+            results += ">>> PROCESS SPAWNED WITH CAT 127! PID: \(pid)\n"
             var status: Int32 = 0
             waitpid(pid, &status, 0)
             results += "Exit status: \((status >> 8) & 0xff)\n"
         }
+
+        if libHandle != nil { dlclose(libHandle) }
         posix_spawnattr_destroy(&attr)
     }
 
